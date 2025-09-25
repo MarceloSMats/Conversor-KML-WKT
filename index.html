@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Conversor KML ↔ WKT — Cirado por TECRoots</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#121830; --muted:#91a0c0; --text:#e7ecff; --acc:#4cc9f0;
+    --btn:#2a3050; --warn:#ffb703; --err:#ff4d6d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:var(--bg); color:var(--text);}
+  header{padding:14px 16px; border-bottom:1px solid #1f2748; background:#0d1330; position:sticky; top:0; z-index:5}
+  header h1{font-size:18px; margin:0}
+  main{display:grid; grid-template-columns:380px 1fr; min-height:calc(100vh - 58px);}
+  aside{padding:16px; border-right:1px solid #1f2748; background:var(--panel); overflow:auto}
+  #mapWrap{position:relative; background:#0a0f1f}
+  /* NOVO: mapa Leaflet (online) ocupa a mesma área do canvas; fica escondido se offline */
+  #leafletMap{position:absolute; inset:0; display:none; background:#060a18; z-index:0}
+  #map{position:absolute; inset:0; background:#060a18; cursor:grab; z-index:0}
+  #hud{position:absolute; left:10px; bottom:10px; font-size:12px; color:var(--muted); background:rgba(0,0,0,.35); padding:6px 8px; border-radius:6px}
+  .row{margin:10px 0}
+  .label{font-size:12px; color:var(--muted); margin-bottom:6px}
+  .muted{color:var(--muted)}
+  textarea{width:100%; min-height:120px; background:#0b122a; color:var(--text); border:1px solid #263156; border-radius:8px; padding:10px; font-family:ui-monospace,Consolas,Menlo,monospace}
+  input[type="text"], select{width:100%; background:#0b122a; color:var(--text); border:1px solid #263156; padding:8px; border-radius:8px}
+  .pill{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid #263156; border-radius:999px; margin:4px 6px 4px 0; font-size:13px; background:#0b122a}
+  .btn{display:inline-flex; align-items:center; gap:8px; background:var(--btn); color:#eaf1ff; border:1px solid #263156; padding:8px 12px; border-radius:8px; cursor:pointer}
+  .btn:hover{filter:brightness(1.1)}
+  .btn:active{transform:scale(.98)}
+  .btn.warn{background:#3a2c00; border-color:#735c00; color:#ffd86b}
+  .btn.primary{background:#22316b; border-color:#384a9a; color:#dfe6ff}
+  .btn.red{background:#4a1020; border-color:#7a2540; color:#ffacc4}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .hr{height:1px; background:#1f2748; margin:16px 0}
+  code{background:#0b122a; padding:2px 6px; border-radius:6px}
+  #drop{border:1px dashed #3a4675; border-radius:12px; padding:12px; text-align:center; color:#a9b4d4}
+  .ok{color:#89f0b3}
+  .warn{color:var(--warn)}
+  .err{color:var(--err)}
+  small{color:#93a6d9}
+</style>
+</head>
+<body>
+<header>
+  <h1>Conversor KML ↔ WKT — Criado por TECRoots</h1>
+</header>
+<main>
+  <aside>
+    <div class="row">
+      <div id="drop">
+        <div><b>Solte aqui</b> ou selecione arquivo(s)</div>
+        <div class="muted" style="margin-top:6px">Aceita: <b>.kml</b> e <b>.kmz</b> (KMZ nativo via API do navegador)</div>
+        <div style="margin-top:8px"><input type="file" id="file" accept=".kml,.kmz" multiple /></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <span class="label">Preferências</span><br/>
+      <label class="pill"><input type="checkbox" id="keepZ"> Manter Z (3D)</label>
+      <label class="pill"><input type="checkbox" id="ewkt"> EWKT: prefixar SRID=...</label>
+      <label class="pill"><input type="checkbox" id="onlyPolygons"> Somente polígonos</label>
+      <label class="pill"><input type="checkbox" id="mergeMulti" checked> Mesclar em Multi*</label>
+    </div>
+
+    <div class="row grid2">
+      <div>
+        <div class="label">CRS para <b>WKT exportado</b></div>
+        <select id="exportCrs">
+          <optgroup label="Geográfico (graus)">
+            <option value="EPSG:4326">EPSG:4326 — WGS84</option>
+            <option value="EPSG:4674">EPSG:4674 — SIRGAS 2000</option>
+          </optgroup>
+          <optgroup label="SIRGAS 2000 / UTM (metros)">
+            <option value="AUTO_UTM">AUTO (zona pelo centroide)</option>
+            <option value="EPSG:31978">EPSG:31978 — UTM 18S</option>
+            <option value="EPSG:31979">EPSG:31979 — UTM 19S</option>
+            <option value="EPSG:31980">EPSG:31980 — UTM 20S</option>
+            <option value="EPSG:31981">EPSG:31981 — UTM 21S</option>
+            <option value="EPSG:31982">EPSG:31982 — UTM 22S</option>
+            <option value="EPSG:31983" selected>EPSG:31983 — UTM 23S</option>
+            <option value="EPSG:31984">EPSG:31984 — UTM 24S</option>
+            <option value="EPSG:31985">EPSG:31985 — UTM 25S</option>
+          </optgroup>
+        </select>
+      </div>
+      <div>
+        <div class="label">Métricas (cálculo)</div>
+        <select id="metricMode">
+          <option value="AUTO_UTM" selected>AUTO UTM (recomendado)</option>
+          <option value="EXPORT_CRS">Usar CRS de exportação</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" id="btnConvertKml">Converter KML/KMZ → WKT</button>
+      <button class="btn" id="btnDownloadCsv">Baixar CSV</button>
+      <button class="btn" id="btnDownloadWkt">Baixar WKT</button>
+    </div>
+
+    <div class="hr"></div>
+
+    <div class="row">
+      <div class="label">WKT → KML (cole um ou vários WKTs; opcionalmente prefixe com nome usando <code>Nome | WKT</code>)</div>
+      <textarea id="wktInput" placeholder="Exemplos:
+Área 1 | POLYGON((-47.93 -15.80, -47.92 -15.80, -47.92 -15.79, -47.93 -15.79, -47.93 -15.80))
+Estrada | LINESTRING(-48 -15.9, -47.9 -15.8)
+Ponto A | POINT(-47.92 -15.83)"></textarea>
+    </div>
+
+    <div class="row grid2">
+      <div>
+        <div class="label">CRS do WKT de entrada</div>
+        <select id="wktCrs">
+          <optgroup label="Geográfico (graus)">
+            <option value="EPSG:4326" selected>EPSG:4326 — WGS84</option>
+            <option value="EPSG:4674">EPSG:4674 — SIRGAS 2000</option>
+          </optgroup>
+          <optgroup label="SIRGAS 2000 / UTM (metros)">
+            <option value="EPSG:31978">EPSG:31978 — UTM 18S</option>
+            <option value="EPSG:31979">EPSG:31979 — UTM 19S</option>
+            <option value="EPSG:31980">EPSG:31980 — UTM 20S</option>
+            <option value="EPSG:31981">EPSG:31981 — UTM 21S</option>
+            <option value="EPSG:31982">EPSG:31982 — UTM 22S</option>
+            <option value="EPSG:31983">EPSG:31983 — UTM 23S</option>
+            <option value="EPSG:31984">EPSG:31984 — UTM 24S</option>
+            <option value="EPSG:31985">EPSG:31985 — UTM 25S</option>
+          </optgroup>
+        </select>
+      </div>
+      <div>
+        <div class="label">Gerar</div>
+        <button class="btn primary" id="btnWktToKml">WKT → KML</button>
+        <button class="btn" id="btnDownloadKml">Baixar KML</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">Saída / Logs</div>
+      <textarea id="output" placeholder="Mensagens, WKT e logs aparecerão aqui..."></textarea>
+    </div>
+
+    <div class="row">
+      <small>* Mesclar em Multi: se um mesmo Placemark contiver diversos polígonos/linhas, gera MultiPolygon/MultiLineString.</small>
+    </div>
+  </aside>
+
+  <section id="mapWrap">
+    <!-- NOVO: mapa Leaflet (aparece quando online) -->
+    <div id="leafletMap" aria-hidden="true"></div>
+
+    <!-- Canvas existente (fallback offline) -->
+    <canvas id="map"></canvas>
+
+    <div id="hud">0 feições • Zoom: 1.00 • Lon/Lat: –</div>
+    <div style="position:absolute; right:10px; top:10px; display:flex; gap:6px; flex-wrap:wrap;">
+      <button class="btn" id="btnFit">Ajustar extensão</button>
+      <button class="btn" id="btnZoomIn">+</button>
+      <button class="btn" id="btnZoomOut">−</button>
+      <button class="btn red" id="btnClear">Limpar</button>
+      <!-- NOVOS botões (somente online) -->
+      <button class="btn" id="btnMapBase" title="Mapa de ruas (online)">Mapa</button>
+      <button class="btn" id="btnSatBase" title="Imagem de satélite (online)">Satélite</button>
+    </div>
+  </section>
+</main>
+
+<script>
+/** =========================
+ * Utilidades
+ * ========================= */
+const $ = sel => document.querySelector(sel);
+const out = (msg) => { const el = $('#output'); el.value += (el.value ? '\n' : '') + msg; el.scrollTop = el.scrollHeight; };
+function download(filename, text, mime='text/plain;charset=utf-8'){ const blob = new Blob([text], {type:mime}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url); }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function approxEqual(a,b,eps=1e-9){ return Math.abs(a-b) <= eps; }
+['keepZ','ewkt','onlyPolygons','mergeMulti','exportCrs','metricMode','wktCrs'].forEach(id=>{ const s=localStorage.getItem('opt_'+id); const el=$('#'+id); if(s!==null&&el){ if(el.type==='checkbox') el.checked = (s==='1'); else el.value = s; el.addEventListener('change',()=>localStorage.setItem('opt_'+id, el.type==='checkbox'?(el.checked?'1':'0'):el.value)); }});
+
+/** =========================
+ * WKT Parser/Writer (Point/MultiPoint/LineString/MultiLineString/Polygon/MultiPolygon)
+ * ========================= */
+const WKT=(()=>{ function tk(s){return s.trim().replace(/\s+/g,' ').replace(/\(\s+/g,'(').replace(/\s+\)/g,')').split(/(?=[(),])|(?<=[(),])|\s+/).filter(Boolean);} function pPoint(t){ if(t[0]==='EMPTY'){t.shift();return null;} if(t.shift()!=='(')throw Error('('); const nums=[]; while(t.length){ const x=t[0]; if(x===')'){t.shift();break;} if(x===','){t.shift();continue;} const v=parseFloat(t.shift()); if(isNaN(v)) throw Error('num'); nums.push(v);} if(nums.length<2) throw Error('ponto'); return nums.length>2?[nums[0],nums[1],nums[2]]:[nums[0],nums[1]]; } function pSeq(t){ const pts=[]; while(t.length){ const x=t[0]; if(x===')') break; if(x===','){t.shift();continue;} const nums=[]; while(t.length){ const y=t[0]; if(y===','||y===')') break; const v=parseFloat(t.shift()); if(isNaN(v)) throw Error('num'); nums.push(v);} if(nums.length<2) throw Error('coord'); pts.push(nums.length>2?[nums[0],nums[1],nums[2]]:[nums[0],nums[1]]);} return pts; } function pRing(t){ if(t.shift()!=='(') throw Error('('); const pts=pSeq(t); if(t.shift()!==')') throw Error(')'); return pts; } function pRings(t){ const rings=[]; if(t.shift()!=='(') throw Error('('); rings.push(pRing(t)); while(t[0]===','){ t.shift(); rings.push(pRing(t)); } if(t.shift()!==')') throw Error(')'); return rings; } function pPolyList(t){ const polys=[]; if(t.shift()!=='(') throw Error('('); polys.push(pRings(t)); while(t[0]===','){ t.shift(); polys.push(pRings(t)); } if(t.shift()!==')') throw Error(')'); return polys; } function parse(w){ const m=w.trim().match(/^([A-Za-z ]+)\s*(Z|M|ZM)?\s*(.*)$/); if(!m) throw Error('WKT'); let type=m[1].toUpperCase().replace(/\s+/g,''); const t=tk(m[3].trim()); if(type==='POINT'){ const c=pPoint(t); return {type:'Point', coordinates:c}; } if(type==='MULTIPOINT'){ if(t.shift()!=='(') throw Error('('); const pts=[]; while(t.length){ if(t[0]===')'){t.shift();break;} if(t[0]===','){t.shift();continue;} if(t[0]==='('){ const p=pPoint(t); if(p) pts.push(p);} else { const s=pSeq(t); pts.push(...s);} } return {type:'MultiPoint', coordinates:pts}; } if(type==='LINESTRING'){ if(t.shift()!=='(') throw Error('('); const pts=pSeq(t); if(t.shift()!==')') throw Error(')'); return {type:'LineString', coordinates:pts}; } if(type==='MULTILINESTRING'){ if(t.shift()!=='(') throw Error('('); const lines=[]; while(true){ lines.push(pRing(t)); if(t[0]===','){t.shift();continue;} if(t[0]===')'){t.shift();break;} throw Error('ml'); } return {type:'MultiLineString', coordinates:lines}; } if(type==='POLYGON'){ const rings=pRings(t); return {type:'Polygon', coordinates:rings}; } if(type==='MULTIPOLYGON'){ const polys=pPolyList(t); return {type:'MultiPolygon', coordinates:polys}; } throw Error('Tipo '+type); } function fmt(n){ return Number.isInteger(n)? ''+n : (Math.abs(n)<1e-6? '0' : (n.toFixed(8).replace(/\.?0+$/,''))); } function rtxt(r,z){ return r.map(p=> z&&p.length>2? `${fmt(p[0])} ${fmt(p[1])} ${fmt(p[2])}` : `${fmt(p[0])} ${fmt(p[1])}`).join(', ');} function write(g,withZ=false){ if(!g) return ''; const z=withZ && detZ(g); const Z=z?' Z':''; switch(g.type){ case 'Point': return `POINT${Z}(${rtxt([g.coordinates],z)})`; case 'MultiPoint': return `MULTIPOINT${Z}(${g.coordinates.map(p=>'('+rtxt([p],z)+')').join(', ')})`; case 'LineString': return `LINESTRING${Z}(${rtxt(g.coordinates,z)})`; case 'MultiLineString': return `MULTILINESTRING${Z}(${g.coordinates.map(r=>'('+rtxt(r,z)+')').join(', ')})`; case 'Polygon': return `POLYGON${Z}(${g.coordinates.map(r=>'('+rtxt(r,z)+')').join(', ')})`; case 'MultiPolygon': return `MULTIPOLYGON${Z}(${g.coordinates.map(poly=>'('+poly.map(r=>'('+rtxt(r,z)+')').join(', ')+')').join(', ')})`; default: throw Error('Tipo'); } } function detZ(g){ const c=g.coordinates; function rec(a){ if(Array.isArray(a)){ if(typeof a[0]==='number') return a.length>2; for(const x of a){ if(rec(x)) return true; } } return false;} return rec(c);} return {parse,write,detZ}; })();
+
+/** =========================
+ * UTM (SIRGAS 2000 / GRS80) ⇄ Geográfico
+ * EPSG:31978–31985 (zonas 18S–25S) — implementação local
+ * ========================= */
+const UTM=(()=>{ const a=6378137.0,f=1/298.257222101,k0=0.9996; const e2=f*(2-f), ep2=e2/(1-e2);
+  function lam0(z){ return (z*6-183)*Math.PI/180; } function deg(x){return x*180/Math.PI;} function rad(x){return x*Math.PI/180;}
+  function M(phi){ const n=f/(2-f); const A0=1+(n*n)/4+(n**4)/64; const A2=(3/2)*(n-(n**3)/8); const A4=(15/16)*(n*n-(n**4)/4); const A6=(35/48)*(n**3); return a/(1+n)*(A0*phi - A2*Math.sin(2*phi) + A4*Math.sin(4*phi) - A6*Math.sin(6*phi)); }
+  function fwd(lat,lon,z){ const phi=rad(lat), lam=rad(lon), l0=lam0(z); const s=Math.sin(phi), c=Math.cos(phi), t=Math.tan(phi);
+    const N=a/Math.sqrt(1 - e2*s*s); const T=t*t; const C=ep2*c*c; const A=(lam - l0)*c; const m=M(phi);
+    const x=k0*N*(A + (1 - T + C)*A**3/6 + (5 - 18*T + T*T + 72*C - 58*ep2)*A**5/120) + 500000;
+    let y=k0*( m + N*t*(A*A/2 + (5 - T + 9*C + 4*C*C)*A**4/24 + (61 - 58*T + T*T + 600*C - 330*ep2)*A**6/720) );
+    if(lat<0) y+=10000000; return [x,y]; }
+  function inv(x,y,z,south=true){ let X=x-500000, Y=y; if(south) Y-=10000000; const m=Y/k0;
+    const n=f/(2-f); const A0=1+(n*n)/4+(n**4)/64, A2=(3/2)*(n-(n**3)/8), A4=(15/16)*(n*n-(n**4)/4), A6=(35/48)*(n**3);
+    const mu=(m*(1+n))/a; let phi1 = mu + (3*A2/(2*A0) - 27*(A2**3)/(32*A0**3))*Math.sin(2*mu) + (21*(A2*A2)/(16*A0*A0) - 55*(A2**4)/(32*A0**4))*Math.sin(4*mu) + (151*(A2**3)/(96*A0**3))*Math.sin(6*mu) + (1097*(A2**4)/(512*A0**4))*Math.sin(8*mu);
+    const s=Math.sin(phi1), c=Math.cos(phi1), t=Math.tan(phi1); const N1=a/Math.sqrt(1 - e2*s*s); const R1=N1*(1-e2)/(1 - e2*s*s);
+    const T1=t*t; const C1=ep2*c*c; const D=X/(N1*k0);
+    const phi = phi1 - (N1*t/R1) * ( D*D/2 - (5 + 3*T1 + 10*C1 - 4*C1*C1 - 9*ep2)*D**4/24 + (61 + 90*T1 + 298*C1 + 45*T1*T1 - 252*ep2 - 3*C1*C1)*D**6/720 );
+    const l0=lam0(z); const lam = l0 + ( D - (1 + 2*T1 + C1)*D**3/6 + (5 - 2*C1 + 28*T1 - 3*C1*C1 + 8*ep2 + 24*T1*T1)*D**5/120 ) / c;
+    return [deg(lam), deg(phi)]; }
+  function zoneFromLon(l){ return Math.max(1, Math.min(60, Math.floor((l+180)/6)+1)); }
+  function isUtm(code){ return /^EPSG:3197[8-9]|EPSG:3198[0-5]$/.test(code);} function epsgZone(code){ const m=code.match(/^EPSG:319(7[8-9]|8[0-5])$/); if(!m) return null; return parseInt(m[1],10)-60; }
+  return {fwd,inv,zoneFromLon,isUtm,epsgZone};
+})();
+
+/** =========================
+ * KML Parser/Writer (Point, LineString, Polygon, MultiGeometry)
+ * ========================= */
+const KML=(()=>{ function textOf(el,tag){ const n=el.getElementsByTagName(tag)[0]; return n? (n.textContent||'').trim():''; }
+  function parseCoords(s, keepZ){ const out=[]; const toks=(s||'').trim().split(/\s+/); for(const t of toks){ if(!t) continue; const [lon,lat,z] = t.split(',').map(x=>x.trim()); const x=parseFloat(lon), y=parseFloat(lat), zz=z!==undefined? parseFloat(z):undefined; if(Number.isFinite(x)&&Number.isFinite(y)) out.push(keepZ&&Number.isFinite(zz)? [x,y,zz]:[x,y]); } return out; }
+  function closeRing(r){ if(!r.length) return r; const a=r[0], b=r[r.length-1]; if(a.length===b.length && a.every((v,i)=>Math.abs(v-b[i])<1e-12)) return r; return r.concat([a]); }
+  function getGeoms(pmEl, keepZ){ const geoms=[]; function coordsFrom(el){ return parseCoords(textOf(el,'coordinates'), keepZ); }
+    function collect(el){ const name=(el.localName||el.tagName||'').toLowerCase();
+      if(name==='point'){ const c=coordsFrom(el); if(c.length) geoms.push({type:'Point', coordinates:c[0]}); return; }
+      if(name==='linestring'){ const c=coordsFrom(el); if(c.length>=2) geoms.push({type:'LineString', coordinates:c}); return; }
+      if(name==='polygon'){ const outer=el.querySelector('outerBoundaryIs'); const o=outer? coordsFrom(outer):[]; if(!o.length) return; const rings=[closeRing(o)]; el.querySelectorAll('innerBoundaryIs').forEach(inner=>{ const h=coordsFrom(inner); if(h.length) rings.push(closeRing(h)); }); geoms.push({type:'Polygon', coordinates:rings}); return; }
+      if(name==='multigeometry' || name==='placemark' || name==='document' || name==='folder' || name==='kml'){ for(const ch of el.children) collect(ch); return; }
+      for(const ch of el.children) collect(ch);
+    }
+    collect(pmEl); return geoms; }
+  function toPlacemarks(features){ function coordsText(coords){ return coords.map(p=> p.length>2? `${p[0]},${p[1]},${p[2]}`:`${p[0]},${p[1]}`).join(' ');} function ringText(r){ return `<LinearRing><coordinates>${coordsText(r)}</coordinates></LinearRing>`;}
+    function polygonXml(poly){ const rings=poly.coordinates; let xml=`<Polygon><outerBoundaryIs>${ringText(rings[0])}</outerBoundaryIs>`; for(let i=1;i<rings.length;i++){ xml+=`<innerBoundaryIs>${ringText(rings[i])}</innerBoundaryIs>`;} xml+=`</Polygon>`; return xml; }
+    function geomXml(g){ switch(g.type){
+        case 'Point': return `<Point><coordinates>${coordsText([g.coordinates])}</coordinates></Point>`;
+        case 'MultiPoint': return `<MultiGeometry>${g.coordinates.map(c=>`<Point><coordinates>${coordsText([c])}</coordinates></Point>`).join('')}</MultiGeometry>`;
+        case 'LineString': return `<LineString><coordinates>${coordsText(g.coordinates)}</coordinates></LineString>`;
+        case 'MultiLineString': return `<MultiGeometry>${g.coordinates.map(r=>`<LineString><coordinates>${coordsText(r)}</coordinates></LineString>`).join('')}</MultiGeometry>`;
+        case 'Polygon': return polygonXml(g);
+        case 'MultiPolygon': return `<MultiGeometry>${g.coordinates.map(poly=>polygonXml({type:'Polygon',coordinates:poly})).join('')}</MultiGeometry>`;
+        default: return '';
+      } }
+    return features.map((f,i)=>{ const name=(f.name||`Feição ${i+1}`).replace(/[<&>]/g,' '); return `<Placemark><name>${name}</name>${geomXml(f.geometry)}</Placemark>`; }).join('');
+  }
+  function buildKml(features){ const body=toPlacemarks(features); return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n  <Document>\n    ${body}\n  </Document>\n</kml>`; }
+  function parseKmlText(text, keepZ, onlyPolygons, mergeMulti){
+    const xml=new DOMParser().parseFromString(text,'application/xml');
+    if(xml.getElementsByTagName('parsererror').length) throw Error('XML inválido');
+    const pms=Array.from(xml.getElementsByTagName('Placemark')); const features=[];
+    for(const pm of pms){
+      const name=(pm.getElementsByTagName('name')[0]?.textContent||'').trim();
+      const geoms=getGeoms(pm, keepZ);
+      const polys=geoms.filter(g=>g.type==='Polygon');
+      const lines=geoms.filter(g=>g.type==='LineString');
+      const points=geoms.filter(g=>g.type==='Point');
+      if(onlyPolygons && polys.length===0) continue;
+      if(polys.length){
+        if(mergeMulti && polys.length>1) features.push({name, geometry:{type:'MultiPolygon', coordinates:polys.map(p=>p.coordinates)}});
+        else polys.forEach(p=>features.push({name, geometry:p}));
+      }
+      if(!onlyPolygons){
+        if(lines.length){
+          if(mergeMulti && lines.length>1) features.push({name, geometry:{type:'MultiLineString', coordinates:lines.map(l=>l.coordinates)}});
+          else lines.forEach(l=>features.push({name, geometry:l}));
+        }
+        if(points.length){
+          if(mergeMulti && points.length>1) features.push({name, geometry:{type:'MultiPoint', coordinates:points.map(pt=>pt.coordinates)}});
+          else points.forEach(pt=>features.push({name, geometry:pt}));
+        }
+      }
+    }
+    return features;
+  }
+  return { buildKml, parseKmlText };
+})();
+
+/** =========================
+ * Métricas e geometrias auxiliares
+ * ========================= */
+const GEOM=(()=>{ function bbox(g){ let minx=+Infinity,miny=+Infinity,maxx=-Infinity,maxy=-Infinity; (function walk(c){ if(typeof c[0]==='number'){ const p=c; minx=Math.min(minx,p[0]); miny=Math.min(miny,p[1]); maxx=Math.max(maxx,p[0]); maxy=Math.max(maxy,p[1]); return; } for(const it of c) walk(it); })(g.coordinates); return [minx,miny,maxx,maxy]; }
+  function centroidPolygon(rings){ function centroidRing(r){ let A=0,cx=0,cy=0; for(let i=0;i<r.length-1;i++){ const [x1,y1]=r[i],[x2,y2]=r[i+1]; const s=(x1*y2 - x2*y1); A+=s; cx+=(x1+x2)*s; cy+=(y1+y2)*s; } A/=2; if(Math.abs(A)<1e-12) return [r[0][0], r[0][1], 0]; return [cx/(6*A), cy/(6*A), A]; } const [cx0,cy0,A0]=centroidRing(rings[0]); let cx=cx0*A0, cy=cy0*A0, A=A0; for(let i=1;i<rings.length;i++){ const [cxi,cyi,Ai]=centroidRing(rings[i]); cx-=cxi*Ai; cy-=cyi*Ai; A-=Ai; } if(Math.abs(A)<1e-12) return [rings[0][0][0], rings[0][0][1]]; return [cx/A, cy/A]; }
+  function centroid(g){ switch(g.type){ case 'Point': return g.coordinates.slice(0,2); case 'MultiPoint':{ let sx=0,sy=0,n=g.coordinates.length; g.coordinates.forEach(p=>{sx+=p[0]; sy+=p[1];}); return [sx/n, sy/n]; } case 'LineString':{ const c=g.coordinates; const i=Math.floor(c.length/2); return c[i].slice(0,2);} case 'MultiLineString': return g.coordinates[0][0].slice(0,2); case 'Polygon': return centroidPolygon(g.coordinates); case 'MultiPolygon':{ let cx=0,cy=0,A=0; for(const poly of g.coordinates){ const [cxp,cyp]=centroidPolygon(poly); const a=Math.abs(poly[0].slice(0,-1).reduce((s,pt,i,arr)=> s + (pt[0]*arr[(i+1)%arr.length][1] - arr[(i+1)%arr.length][0]*pt[1]), 0)/2); cx+=cxp*a; cy+=cyp*a; A+=a; } return A? [cx/A, cy/A] : centroidPolygon(g.coordinates[0]); } default: return [0,0]; } }
+  function length2D(r){ let s=0; for(let i=1;i<r.length;i++){ s+=Math.hypot(r[i][0]-r[i-1][0], r[i][1]-r[i-1][1]); } return s; }
+  function toMetric(gLL, mode, exportCrs){ function autoZone(){ const [lon]=centroid(gLL); return Math.max(18, Math.min(25, UTM.zoneFromLon(lon))); } let zone=null; if(mode==='EXPORT_CRS' && UTM.isUtm(exportCrs)) zone=UTM.epsgZone(exportCrs); else zone=autoZone();
+    function convP(p){ const [lon,lat]=p; const [x,y]=UTM.fwd(lat,lon,zone); return [x,y]; }
+    function map(c){ if(typeof c[0]==='number') return convP(c); return c.map(map); }
+    return { geom:{type:gLL.type, coordinates:map(gLL.coordinates)}, zone };
+  }
+  function areaPerimeter(gLL, mode, exportCrs){
+    if(gLL.type!=='Polygon'&&gLL.type!=='MultiPolygon'){
+      if(gLL.type==='LineString'||gLL.type==='MultiLineString'){
+        const {geom}=toMetric(gLL, mode, exportCrs);
+        const len = gLL.type==='LineString'? length2D(geom.coordinates) : geom.coordinates.reduce((s,r)=>s+length2D(r),0);
+        return {area:0,perim:len,zone:null};
+      }
+      return {area:0,perim:0,zone:null};
+    }
+    const {geom,zone}=toMetric(gLL, mode, exportCrs);
+    function signed(r){ let a=0; for(let i=0;i<r.length-1;i++){ const [x1,y1]=r[i],[x2,y2]=r[i+1]; a+=(x1*y2 - x2*y1);} return a/2; }
+    function ringLen(r){ let s=0; for(let i=1;i<r.length;i++){ const [x1,y1]=r[i-1],[x2,y2]=r[i]; s+=Math.hypot(x2-x1,y2-y1);} return s; }
+    let A=0,P=0;
+    if(geom.type==='Polygon'){
+      A+=Math.abs(signed(geom.coordinates[0])); P+=ringLen(geom.coordinates[0]);
+      for(let i=1;i<geom.coordinates.length;i++){ A-=Math.abs(signed(geom.coordinates[i])); P+=ringLen(geom.coordinates[i]); }
+    } else {
+      for(const poly of geom.coordinates){
+        A+=Math.abs(signed(poly[0])); P+=ringLen(poly[0]);
+        for(let i=1;i<poly.length;i++){ A-=Math.abs(signed(poly[i])); P+=ringLen(poly[i]); }
+      }
+    }
+    return {area:A, perim:P, zone};
+  }
+  return {bbox, centroid, areaPerimeter};
+})();
+
+/** =========================
+ * CRS proj/unproj para exportação e WKT → KML
+ * ========================= */
+const CRS=(()=>{ function projectLLto(geomLL,target){ if(target==='EPSG:4326'||target==='EPSG:4674') return geomLL; let zone; if(target==='AUTO_UTM'){ const [lon]=GEOM.centroid(geomLL); zone=Math.max(18, Math.min(25, UTM.zoneFromLon(lon))); } else zone=UTM.epsgZone(target);
+    function map(c){ if(typeof c[0]==='number'){ const [x,y]=UTM.fwd(c[1], c[0], zone); return c.length>2?[x,y,c[2]]:[x,y]; } return c.map(map); }
+    return {type:geomLL.type, coordinates:map(geomLL.coordinates)};
+  }
+  function unprojectToLL(geom,source){ if(source==='EPSG:4326'||source==='EPSG:4674') return geom; const zone=UTM.epsgZone(source);
+    function map(c){ if(typeof c[0]==='number'){ const [lon,lat]=UTM.inv(c[0], c[1], zone, true); return c.length>2?[lon,lat,c[2]]:[lon,lat]; } return c.map(map); }
+    return {type:geom.type, coordinates:map(geom.coordinates)};
+  }
+  return {projectLLto, unprojectToLL};
+})();
+
+/** =========================
+ * KMZ nativo (sem JSZip): extrai doc.kml (ou 1º .kml) via DecompressionStream
+ * ========================= */
+async function extractKmlFromKmz(file){
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  function u32(off){ return bytes[off] | (bytes[off+1]<<8) | (bytes[off+2]<<16) | (bytes[off+3]<<24); }
+  function u16(off){ return bytes[off] | (bytes[off+1]<<8); }
+  // End of Central Directory (0x06054b50)
+  let eocd=-1; for(let i=bytes.length-22; i>=0 && i>bytes.length-65557; i--){ if(bytes[i]===0x50&&bytes[i+1]===0x4b&&bytes[i+2]===0x05&&bytes[i+3]===0x06){ eocd=i; break; } }
+  if(eocd<0) throw new Error('KMZ inválido (EOCD não encontrado)');
+  const cdCount=u16(eocd+10), cdOffset=u32(eocd+16);
+  let ptr=cdOffset, candidate=null;
+  for(let n=0;n<cdCount;n++){
+    if(!(bytes[ptr]===0x50&&bytes[ptr+1]===0x4b&&bytes[ptr+2]===0x01&&bytes[ptr+3]===0x02)) throw new Error('CD header inválido');
+    const compMethod=u16(ptr+10), compSize=u32(ptr+20), nameLen=u16(ptr+28), extraLen=u16(ptr+30), commentLen=u16(ptr+32), localHeaderOffset=u32(ptr+42);
+    const name = new TextDecoder().decode(bytes.slice(ptr+46, ptr+46+nameLen));
+    ptr += 46 + nameLen + extraLen + commentLen;
+    if(/\.kml$/i.test(name)){ candidate = {name, compMethod, compSize, localHeaderOffset}; if(name.toLowerCase().endsWith('doc.kml')) break; }
+  }
+  if(!candidate) throw new Error('Nenhum .kml encontrado no KMZ');
+  let lh=candidate.localHeaderOffset;
+  if(!(bytes[lh]===0x50&&bytes[lh+1]===0x4b&&bytes[lh+2]===0x03&&bytes[lh+3]===0x04)) throw new Error('Local header inválido');
+  const nameLen=u16(lh+26), extraLen=u16(lh+28), dataStart=lh + 30 + nameLen + extraLen;
+  const data=bytes.slice(dataStart, dataStart + candidate.compSize);
+  if(candidate.compMethod===0){ return new TextDecoder().decode(data); }
+  if(candidate.compMethod===8){
+    if(!('DecompressionStream' in window)) throw new Error('Navegador sem DecompressionStream (deflate)');
+    const ds = new DecompressionStream('deflate-raw');
+    const decompressed = await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer();
+    return new TextDecoder().decode(new Uint8Array(decompressed));
+  }
+  throw new Error('Método ZIP não suportado: '+candidate.compMethod);
+}
+
+/** =========================
+ * App (Canvas) — estado e render básico offline
+ * ========================= */
+const APP = (() => {
+  const state = { features: [], view: { cx: -47.92, cy: -15.83, scale: 2.0, w: 0, h: 0 } };
+  const canvas = $('#map'); const ctx = canvas.getContext('2d'); const hud = $('#hud');
+
+  function setSize(){
+    const r = $('#mapWrap').getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(r.width*dpr); canvas.height = Math.floor(r.height*dpr);
+    canvas.style.width = r.width+'px'; canvas.style.height = r.height+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    state.view.w=r.width; state.view.h=r.height;
+    draw();
+  }
+  window.addEventListener('resize', setSize);
+
+  function lonlatToXY(lon, lat){ const {cx,cy,scale,w,h}=state.view; return [(lon - cx)*scale + w/2, (cy - lat)*scale + h/2]; }
+  function XYToLonLat(x, y){ const {cx,cy,scale,w,h}=state.view; return [(x - w/2)/scale + cx, cy - (y - h/2)/scale]; }
+  function colorForType(t){ if(t.startsWith('Multi')) t=t.slice(5); return t==='Polygon'? '#4cc9f0' : t==='LineString'? '#ffd166' : t==='Point'? '#ff6b6b' : '#c0caf5'; }
+
+  function draw(){
+    const {w,h}=state.view; ctx.clearRect(0,0,w,h);
+    // grid leve
+    ctx.globalAlpha=0.3; ctx.strokeStyle='#1a2348'; ctx.lineWidth=1;
+    for(let lon=Math.ceil(-180); lon<=180; lon+=1){ const [x0]=lonlatToXY(lon,-90); if(x0<0||x0>w) continue; ctx.beginPath(); ctx.moveTo(x0,0); ctx.lineTo(x0,h); ctx.stroke(); }
+    for(let lat=Math.ceil(-90); lat<=90; lat+=1){ const [,y0]=lonlatToXY(-180,lat); if(y0<0||y0>h) continue; ctx.beginPath(); ctx.moveTo(0,y0); ctx.lineTo(w,y0); ctx.stroke(); }
+    ctx.globalAlpha=1;
+
+    // feições
+    for(const f of state.features){
+      const g=f.geometry; const col=colorForType(g.type);
+      ctx.lineWidth=2; ctx.strokeStyle=col; ctx.fillStyle=col+'33';
+      function pathRing(r){ ctx.beginPath(); for(let i=0;i<r.length;i++){ const [x,y]=lonlatToXY(r[i][0],r[i][1]); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); } ctx.stroke(); }
+      function drawPoly(rings){ ctx.beginPath(); for(const r of rings){ for(let i=0;i<r.length;i++){ const [x,y]=lonlatToXY(r[i][0],r[i][1]); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); } ctx.closePath(); } ctx.fill('evenodd'); ctx.stroke(); }
+      switch(g.type){
+        case 'Point':{ const [x,y]=lonlatToXY(g.coordinates[0],g.coordinates[1]); ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill(); ctx.stroke(); } break;
+        case 'MultiPoint': for(const p of g.coordinates){ const [x,y]=lonlatToXY(p[0],p[1]); ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill(); ctx.stroke(); } break;
+        case 'LineString': pathRing(g.coordinates); break;
+        case 'MultiLineString': for(const r of g.coordinates) pathRing(r); break;
+        case 'Polygon': drawPoly(g.coordinates); break;
+        case 'MultiPolygon': for(const poly of g.coordinates) drawPoly(poly); break;
+      }
+    }
+    hud.textContent = `${state.features.length} feição(ões) • Zoom: ${state.view.scale.toFixed(2)} • Lon/Lat: ${hud.__ll||'–'}`;
+  }
+
+  // Pan/zoom no canvas
+  (function(){
+    let dragging=false,x0=0,y0=0,cx0=0,cy0=0;
+    canvas.addEventListener('mousedown', e=>{ dragging=true; canvas.style.cursor='grabbing'; x0=e.clientX; y0=e.clientY; cx0=state.view.cx; cy0=state.view.cy; });
+    window.addEventListener('mouseup', ()=>{ dragging=false; canvas.style.cursor='grab'; });
+    window.addEventListener('mousemove', e=>{
+      const rect=canvas.getBoundingClientRect(); const x=e.clientX-rect.left, y=e.clientY-rect.top; const [lon,lat]=XYToLonLat(x,y); hud.__ll=`${lon.toFixed(5)}, ${lat.toFixed(5)}`;
+      if(!dragging){ draw(); return; }
+      const dx=e.clientX-x0, dy=e.clientY-y0; state.view.cx = cx0 - dx/state.view.scale; state.view.cy = cy0 + dy/state.view.scale; draw();
+    });
+    canvas.addEventListener('wheel', e=>{
+      e.preventDefault(); const delta=e.deltaY<0?1.15:0.87;
+      const rect=canvas.getBoundingClientRect(); const x=e.clientX-rect.left, y=e.clientY-rect.top;
+      const [lon0,lat0]=XYToLonLat(x,y); state.view.scale=clamp(state.view.scale*delta, 0.2, 1000);
+      const [lon1,lat1]=XYToLonLat(x,y); state.view.cx += (lon0-lon1); state.view.cy += (lat0-lat1); draw();
+    }, {passive:false});
+  })();
+
+  function fit(){
+    if(!state.features.length) return;
+    let minx=+Infinity,miny=+Infinity,maxx=-Infinity,maxy=-Infinity;
+    for(const f of state.features){ const [a,b,c,d]=GEOM.bbox(f.geometry); minx=Math.min(minx,a); miny=Math.min(miny,b); maxx=Math.max(maxx,c); maxy=Math.max(maxy,d); }
+    const pad=0.05, w=state.view.w, h=state.view.h; const dx=(maxx-minx)||0.01, dy=(maxy-miny)||0.01;
+    const sx=(w*(1-2*pad))/dx, sy=(h*(1-2*pad))/dy; state.view.scale=Math.min(sx,sy);
+    state.view.cx=(minx+maxx)/2; state.view.cy=(miny+maxy)/2; draw();
+  }
+  function setFeatures(list){ state.features=list; draw(); }
+
+  return { state, setFeatures, draw, fit, setSize };
+})();
+
+/** =========================
+ * LEAF: visualizador online (Leaflet + OSM/Esri) — aparece quando navigator.onLine = true
+ * ========================= */
+const LEAF = (() => {
+  let map=null, overlayGroup=null, baseLayers={}, currentBase='osm';
+  function loadLeafletAssets(cb){
+    if(window.L){ cb(); return; }
+    const link=document.createElement('link'); link.rel='stylesheet'; link.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    const scr=document.createElement('script'); scr.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; scr.onload=()=>cb();
+    document.head.appendChild(link); document.head.appendChild(scr);
+  }
+  function setVisible(showLeaflet){
+    const div=$('#leafletMap'); const canvas=$('#map');
+    if(showLeaflet){ div.style.display='block'; canvas.style.display='none'; div.setAttribute('aria-hidden','false'); }
+    else { div.style.display='none'; canvas.style.display='block'; div.setAttribute('aria-hidden','true'); }
+    $('#btnMapBase').disabled = !showLeaflet; $('#btnSatBase').disabled = !showLeaflet;
+  }
+  function init(){
+    if(!window.L || map) return;
+    map = L.map($('#leafletMap'), { zoomControl:false, attributionControl:true });
+    baseLayers.osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OSM contributors'});
+    baseLayers.sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'Tiles &copy; Esri'});
+    baseLayers.osm.addTo(map);
+    overlayGroup = L.featureGroup().addTo(map);
+    new ResizeObserver(()=> map.invalidateSize()).observe($('#leafletMap'));
+  }
+  function toLatLngRing(r){ return r.map(p=>[p[1],p[0]]); }
+  function polyRingsToLatLngs(rings){ return rings.map(toLatLngRing); }
+  function colorForType(t){ if(t.startsWith('Multi')) t=t.slice(5); return t==='Polygon'? '#4cc9f0' : t==='LineString'? '#ffd166' : t==='Point'? '#ff6b6b' : '#c0caf5'; }
+  function renderFeatures(features){
+    if(!map || !overlayGroup) return; overlayGroup.clearLayers(); if(!features || !features.length) return;
+    features.forEach(f=>{
+      const g=f.geometry, name=f.name||'', col=colorForType(g.type);
+      const style={color:col,weight:2,opacity:1,fillColor:col,fillOpacity:0.2}; let layer=null;
+      switch(g.type){
+        case 'Point': layer=L.circleMarker([g.coordinates[1],g.coordinates[0]],{radius:5,color:col,weight:2,fillColor:col,fillOpacity:0.8}); break;
+        case 'MultiPoint': layer=L.featureGroup(g.coordinates.map(p=>L.circleMarker([p[1],p[0]],{radius:4,color:col,weight:2,fillColor:col,fillOpacity:0.8}))); break;
+        case 'LineString': layer=L.polyline(toLatLngRing(g.coordinates), style); break;
+        case 'MultiLineString': layer=L.featureGroup(g.coordinates.map(r=>L.polyline(toLatLngRing(r), style))); break;
+        case 'Polygon': layer=L.polygon(polyRingsToLatLngs(g.coordinates), style); break;
+        case 'MultiPolygon': layer=L.polygon(g.coordinates.map(poly=>polyRingsToLatLngs(poly)), style); break;
+      }
+      if(layer){ if(name) layer.bindTooltip(name,{sticky:true,direction:'top'}); overlayGroup.addLayer(layer); }
+    });
+  }
+  function fitIfVisible(){ if(!map||!overlayGroup) return; if($('#leafletMap').style.display==='none') return; if(overlayGroup.getLayers().length){ map.fitBounds(overlayGroup.getBounds(), {padding:[20,20]}); } }
+  function setBase(which){ if(!map) return; if(which!=='osm'&&which!=='sat') return; if(currentBase===which) return; baseLayers[currentBase]?.remove(); baseLayers[which]?.addTo(map); currentBase=which; }
+  function goOnlineMode(){ loadLeafletAssets(()=>{ init(); setVisible(true); renderFeatures(APP?.state?.features||[]); fitIfVisible(); }); }
+  function goOfflineMode(){ setVisible(false); }
+  function updateByConnectivity(){ if(navigator.onLine) goOnlineMode(); else goOfflineMode(); }
+  window.addEventListener('online', updateByConnectivity); window.addEventListener('offline', updateByConnectivity);
+  window.addEventListener('DOMContentLoaded', ()=>{
+    const bMap=$('#btnMapBase'), bSat=$('#btnSatBase'); if(bMap) bMap.addEventListener('click',()=>setBase('osm')); if(bSat) bSat.addEventListener('click',()=>setBase('sat'));
+    // Integra zoom +/− quando mapa estiver visível
+    const zIn=$('#btnZoomIn'), zOut=$('#btnZoomOut');
+    if(zIn) zIn.addEventListener('click', ()=>{ if(map && $('#leafletMap').style.display!=='none') map.zoomIn(); });
+    if(zOut) zOut.addEventListener('click', ()=>{ if(map && $('#leafletMap').style.display!=='none') map.zoomOut(); });
+    updateByConnectivity();
+  });
+  // Hook nos métodos do APP para refletir no Leaflet
+  (function wire(){ if(!APP||!APP.setFeatures) return; const origSet=APP.setFeatures; APP.setFeatures=function(list){ origSet(list); renderFeatures(list); }; const origFit=APP.fit; APP.fit=function(){ origFit(); fitIfVisible(); }; })();
+  return { renderFeatures, fitIfVisible, setBase, updateByConnectivity };
+})();
+</script>
+
+<script>
+/** =========================
+ * Glue: Import/Export/Actions
+ * ========================= */
+(function(){
+  APP.setSize();
+  $('#btnFit').addEventListener('click', APP.fit);
+  $('#btnZoomIn').addEventListener('click', ()=>{ APP.state.view.scale=clamp(APP.state.view.scale*1.2,0.2,1000); APP.draw(); });
+  $('#btnZoomOut').addEventListener('click', ()=>{ APP.state.view.scale=clamp(APP.state.view.scale/1.2,0.2,1000); APP.draw(); });
+  $('#btnClear').addEventListener('click', ()=>{ APP.setFeatures([]); $('#output').value=''; });
+
+  function addLogFeatures(features){
+    const keepZ=$('#keepZ').checked, ewkt=$('#ewkt').checked, exportCrs=$('#exportCrs').value;
+    const lines=[]; let count=0;
+    for(const f of features){
+      const gOut=CRS.projectLLto(f.geometry, exportCrs);
+      const withZ = keepZ && WKT.detZ(f.geometry);
+      let wkt=WKT.write(gOut, withZ);
+      if(ewkt){
+        let srid = exportCrs==='EPSG:4674'?'4674' : exportCrs==='EPSG:4326'?'4326' : (UTM.isUtm(exportCrs)? exportCrs.replace('EPSG:',''):'4326');
+        wkt=`SRID=${srid};${wkt}`;
+      }
+      lines.push((f.name?`-- ${f.name}\n`:'')+wkt); count++;
+    }
+    out(`Convertidas ${count} feição(ões) para WKT (${exportCrs}).`);
+    $('#output').value = lines.join('\n\n');
+  }
+
+  async function readKmlFile(file){ if(file.name.toLowerCase().endsWith('.kmz')){ const text=await extractKmlFromKmz(file); return text; } else { return await file.text(); } }
+
+  async function filesToFeatures(files){
+    const keepZ=$('#keepZ').checked, onlyPolygons=$('#onlyPolygons').checked, mergeMulti=$('#mergeMulti').checked;
+    const all=[]; for(const f of files){
+      try{ const kmlText=await readKmlFile(f); const feats=KML.parseKmlText(kmlText, keepZ, onlyPolygons, mergeMulti); all.push(...feats); out(`✔ ${f.name}: ${feats.length} feição(ões) lidas`); }
+      catch(e){ out(`✖ ${f.name}: erro → ${e.message||e}`); }
+    } return all;
+  }
+
+  // KML/KMZ → WKT
+  $('#btnConvertKml').addEventListener('click', async ()=>{
+    const files=$('#file').files; if(!files||!files.length){ out('Selecione um ou mais arquivos .kml/.kmz.'); return; }
+    const feats=await filesToFeatures(files); if(!feats.length){ out('Nenhuma feição válida encontrada.'); return; }
+    APP.setFeatures(feats); APP.fit(); addLogFeatures(feats); computeMetrics(feats);
+  });
+
+  // Arrastar & soltar
+  const drop = $('#drop');
+  drop.addEventListener('dragover', e=>{ e.preventDefault(); drop.style.borderColor='#66c2ff'; });
+  drop.addEventListener('dragleave', e=>{ drop.style.borderColor='#3a4675'; });
+  drop.addEventListener('drop', async e=>{
+    e.preventDefault(); drop.style.borderColor='#3a4675';
+    const files=Array.from(e.dataTransfer.files).filter(f=>/\.(kml|kmz)$/i.test(f.name));
+    if(!files.length){ out('Solte arquivos .kml ou .kmz'); return; }
+    const feats=await filesToFeatures(files); if(!feats.length){ out('Nenhuma feição válida.'); return; }
+    APP.setFeatures(feats); APP.fit(); addLogFeatures(feats); computeMetrics(feats);
+  });
+
+  // CSV/WKT download
+  $('#btnDownloadCsv').addEventListener('click', ()=>{
+    const feats=APP.state.features; if(!feats.length){ out('Nada para exportar.'); return; }
+    const keepZ=$('#keepZ').checked, ewkt=$('#ewkt').checked, exportCrs=$('#exportCrs').value;
+    const rows=[]; for(const f of feats){
+      const gOut=CRS.projectLLto(f.geometry, exportCrs);
+      const withZ=keepZ && WKT.detZ(f.geometry);
+      let wkt=WKT.write(gOut, withZ);
+      if(ewkt){ let srid=exportCrs==='EPSG:4674'?'4674': exportCrs==='EPSG:4326'?'4326': (UTM.isUtm(exportCrs)? exportCrs.replace('EPSG:',''):'4326'); wkt=`SRID=${srid};${wkt}`; }
+      rows.push({name:f.name||'', type:gOut.type, wkt});
+    }
+    const header='name;geometry_type;wkt';
+    const lines=[header].concat(rows.map(r=>[r.name,r.type,r.wkt.replace(/"/g,'""')].map(s=> /[;\n"]/.test(s)? `"${s}"`:s).join(';')));
+    download('kml_to_wkt.csv', lines.join('\n'), 'text/csv;charset=utf-8');
+  });
+
+  $('#btnDownloadWkt').addEventListener('click', ()=>{ const txt=$('#output').value.trim(); if(!txt){ out('Nada para baixar.'); return; } download('geometrias.wkt.txt', txt); });
+
+  // WKT → KML
+  $('#btnWktToKml').addEventListener('click', ()=>{
+    const txt=$('#wktInput').value.trim(); if(!txt){ out('Cole um ou mais WKTs.'); return; }
+    const srcCrs=$('#wktCrs').value; const lines=txt.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    const feats=[]; for(const line of lines){
+      try{
+        let name='', wkt=line; const ix=line.indexOf('|'); if(ix>0){ name=line.slice(0,ix).trim(); wkt=line.slice(ix+1).trim(); }
+        const m=wkt.match(/^SRID=(\d+);(.*)$/i); if(m){ wkt=m[2].trim(); }
+        const g=WKT.parse(wkt);
+        const gLL=(UTM.isUtm(srcCrs)? CRS.unprojectToLL(g, srcCrs):g);
+        feats.push({name, geometry:gLL});
+      }catch(e){ out(`Erro WKT: ${e.message||e} → ${line.slice(0,60)}...`); }
+    }
+    if(!feats.length){ out('Nenhuma geometria válida.'); return; }
+    APP.setFeatures(feats); APP.fit(); out(`WKT → KML: ${feats.length} feição(ões). Pronto para baixar.`);
+  });
+
+  $('#btnDownloadKml').addEventListener('click', ()=>{
+    const feats=APP.state.features; if(!feats.length){ out('Nada no mapa para exportar KML.'); return; }
+    const kml=KML.buildKml(feats); download('geometrias.kml', kml, 'application/vnd.google-earth.kml+xml');
+  });
+
+  function computeMetrics(feats){
+    const mode=$('#metricMode').value; const exportCrs=$('#exportCrs').value;
+    for(const f of feats){
+      const gLL=f.geometry;
+      if(gLL.type==='Polygon'||gLL.type==='MultiPolygon'){
+        const {area,perim,zone}=GEOM.areaPerimeter(gLL, mode, exportCrs); const ha=area/10000;
+        out(`• ${f.name||'Sem nome'} → área: ${ha.toFixed(4)} ha, perímetro: ${perim.toFixed(2)} m` + (zone? ` (UTM ${zone}S)`:''));
+      } else if(gLL.type==='LineString'||gLL.type==='MultiLineString'){
+        const {perim}=GEOM.areaPerimeter(gLL, mode, exportCrs);
+        out(`• ${f.name||'Sem nome'} → comprimento: ${perim.toFixed(2)} m`);
+      } else if(gLL.type==='Point'||gLL.type==='MultiPoint'){
+        const [cx,cy]=GEOM.centroid(gLL);
+        out(`• ${f.name||'Sem nome'} → ponto(s), centroide: ${cx.toFixed(6)}, ${cy.toFixed(6)}`);
+      }
+    }
+  }
+
+  // Inicialização
+  APP.setSize();
+
+  // Hud coord no mouse quando canvas está visível
+  (function(){
+    const canvas=$('#map');
+    canvas.addEventListener('mousemove', e=>{
+      const rect=canvas.getBoundingClientRect(); const x=e.clientX-rect.left, y=e.clientY-rect.top;
+      const [lon,lat]=((x,y)=>{ const {cx,cy,scale,w,h}=APP.state.view; return [(x - w/2)/scale + cx, cy - (y - h/2)/scale]; })(x,y);
+      $('#hud').__ll=`${lon.toFixed(5)}, ${lat.toFixed(5)}`;
+    });
+  })();
+
+})();
+</script>
+</body>
+</html>
