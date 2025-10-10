@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Conversor KML ↔ WKT — Criado por TECRoots</title>
+<title>KML ↔ WKT — Conversor Offline (Mapa online/satélite + Fallback)</title>
 <style>
   :root{
     --bg:#0b1020; --panel:#121830; --muted:#91a0c0; --text:#e7ecff; --acc:#4cc9f0;
@@ -25,7 +25,9 @@
   .muted{color:var(--muted)}
   textarea{width:100%; min-height:120px; background:#0b122a; color:var(--text); border:1px solid #263156; border-radius:8px; padding:10px; font-family:ui-monospace,Consolas,Menlo,monospace}
   input[type="text"], select{width:100%; background:#0b122a; color:var(--text); border:1px solid #263156; padding:8px; border-radius:8px}
-  .pill{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid #263156; border-radius:999px; margin:4px 6px 4px 0; font-size:13px; background:#0b122a}
+  .pill{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid #263156; border-radius:999px; margin:4px 6px 4px 0; font-size:13px;   background: var(--surface) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;}
   .btn{display:inline-flex; align-items:center; gap:8px; background:var(--btn); color:#eaf1ff; border:1px solid #263156; padding:8px 12px; border-radius:8px; cursor:pointer}
   .btn:hover{filter:brightness(1.1)}
   .btn:active{transform:scale(.98)}
@@ -40,11 +42,96 @@
   .warn{color:var(--warn)}
   .err{color:var(--err)}
   small{color:#93a6d9}
+/* Tema automático por preferência do sistema */
+/* 1) Paletas: claro padrão + escuro no @media */
+:root {
+  /* claro */
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --surface: #f2f4f8;
+  --text: #0b122a;
+  --muted: #4c5a7a;
+  --acc: #22316b;
+  --btn: #e9eefc;
+  --border: #cdd6e6;
+  --header: #f0f3fa;
+  --map-bg: #e9eefc;
+
+  /* avisos/erros mantidos */
+  --warn: #ffb703;
+  --err: #ff4d6d;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* escuro (mantém sua paleta atual) */
+    --bg: #0b1020;
+    --panel: #121830;
+    --surface: #0b122a;
+    --text: #e7ecff;
+    --muted: #91a0c0;
+    --acc: #4cc9f0;
+    --btn: #2a3050;
+    --border: #1f2748;
+    --header: #0d1330;
+    --map-bg: #060a18;
+
+    --warn: #ffb703;
+    --err: #ff4d6d;
+  }
+}
+
+/* 2) Overrides para trocar cores fixas por tokens */
+header {
+  background: var(--header) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+aside {
+  background: var(--panel) !important;
+  border-right: 1px solid var(--border) !important;
+}
+
+#mapWrap,
+#leafletMap,
+#map,
+#mapcanvas,
+canvas#mapcanvas {
+  background: var(--map-bg) !important;
+}
+
+/* Texto suave/legendas */
+.hud,
+.muted,
+small,
+.label {
+  color: var(--muted) !important;
+}
+
+/* Campos e código */
+textarea,
+input[type="text"],
+select,
+code {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+/* Botões e divisória */
+.btn {
+  background: var(--btn) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+.hr {
+  background: var(--border) !important;
+}
+
 </style>
 </head>
 <body>
 <header>
-  <h1>Conversor KML ↔ WKT — Criado por TECRoots</h1>
+  <h1>Conversor KML ↔ WKT —  by TECRoots </h1>
 </header>
 <main>
   <aside>
@@ -631,4 +718,3 @@ const LEAF = (() => {
 </script>
 </body>
 </html>
-
