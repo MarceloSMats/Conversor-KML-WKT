@@ -146,7 +146,7 @@ code {
     <div class="row">
       <span class="label">Preferências</span><br/>
       <label class="pill"><input type="checkbox" id="keepZ"> Manter Z (3D)</label>
-      <label class="pill"><input type="checkbox" id="ewkt"> EWKT: prefixar SRID=...</label>
+      <label class="pill"><input type="checkbox" id="ewkt" checked> EWKT: prefixar SRID=...</label>
       <label class="pill"><input type="checkbox" id="onlyPolygons"> Somente polígonos</label>
       <label class="pill"><input type="checkbox" id="mergeMulti" checked> Mesclar em Multi*</label>
     </div>
@@ -156,7 +156,7 @@ code {
         <div class="label">CRS para <b>WKT exportado</b></div>
         <select id="exportCrs">
           <optgroup label="Geográfico (graus)">
-            <option value="EPSG:4326">EPSG:4326 — WGS84</option>
+            <option value="EPSG:4326" selected>EPSG:4326 — WGS84</option>
             <option value="EPSG:4674">EPSG:4674 — SIRGAS 2000</option>
           </optgroup>
           <optgroup label="SIRGAS 2000 / UTM (metros)">
@@ -166,7 +166,7 @@ code {
             <option value="EPSG:31980">EPSG:31980 — UTM 20S</option>
             <option value="EPSG:31981">EPSG:31981 — UTM 21S</option>
             <option value="EPSG:31982">EPSG:31982 — UTM 22S</option>
-            <option value="EPSG:31983" selected>EPSG:31983 — UTM 23S</option>
+            <option value="EPSG:31983">EPSG:31983 — UTM 23S</option>
             <option value="EPSG:31984">EPSG:31984 — UTM 24S</option>
             <option value="EPSG:31985">EPSG:31985 — UTM 25S</option>
           </optgroup>
